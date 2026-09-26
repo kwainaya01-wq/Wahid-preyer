@@ -74,4 +74,22 @@ class ExampleRobolectricTest {
         assertTrue("Hijri month must be between 1 and 12", hijri.month in 1..12)
         assertTrue("Hijri day must be between 1 and 30", hijri.day in 1..30)
     }
+
+    @Test
+    fun `verify azan mp3 audio exists`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val hasAzan = com.example.audio.AzanPlayer.hasDefaultAzanAudio(context)
+        assertTrue("azan.mp3 must be present in raw resources", hasAzan)
+    }
+
+    @Test
+    fun `verify unselected audio handling does not play chime and returns error`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        // Ensure local file is not present for this test
+        val localFile = com.example.audio.AzanPlayer.getLocalAzanFile(context)
+        if (localFile.exists()) localFile.delete()
+
+        val result = com.example.audio.AzanPlayer.playAzan(context, customUri = null, allowBundledFallback = false)
+        assertTrue("When no audio file is selected, should return Error without playing chime", result is com.example.audio.AzanPlayResult.Error)
+    }
 }

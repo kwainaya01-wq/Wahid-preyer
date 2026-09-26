@@ -3,7 +3,6 @@ package com.example.alarm
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.os.Build
 import android.os.PowerManager
 import androidx.core.content.ContextCompat
 import com.example.audio.AzanPlaybackService
@@ -65,29 +64,46 @@ class PrayerAlarmReceiver : BroadcastReceiver() {
 
             val isAzanAllowed = settings.isAzanEnabledFor(prayerType)
             val isFajr = (prayerType == PrayerType.FAJR)
-
             val willPlayAudio = isAzanAllowed && settings.azanTone != "none"
+            val hasAudioInstalled = AzanPlayer.hasSelectedAudio(context, settings.customAzanUri)
 
-            // Show notification
-            NotificationHelper.showPrayerNotification(
-                context = context,
-                prayerType = prayerType,
-                timeString = timeString,
-                isPlayingAzan = willPlayAudio
-            )
-
-            // Start Azan playback service if audio enabled
             if (willPlayAudio) {
-                val serviceIntent = Intent(context, AzanPlaybackService::class.java).apply {
-                    action = AzanPlaybackService.ACTION_START_AZAN
-                    putExtra(AzanPlaybackService.EXTRA_PRAYER_NAME, prayerType.englishName)
-                    putExtra(AzanPlaybackService.EXTRA_PRAYER_ARABIC, prayerType.arabicName)
-                    putExtra(AzanPlaybackService.EXTRA_IS_FAJR, isFajr)
-                    if (settings.azanTone == "custom") {
+                if (!hasAudioInstalled) {
+                    // Audio is missing: do NOT play chime, show missing audio warning
+                    NotificationHelper.showPrayerNotification(
+                        context = context,
+                        prayerType = prayerType,
+                        timeString = timeString,
+                        isPlayingAzan = false,
+                        warningMessage = "Please select an Azan audio file in Azan & Audio settings."
+                    )
+                } else {
+                    // Show notification with Stop Azan action
+                    NotificationHelper.showPrayerNotification(
+                        context = context,
+                        prayerType = prayerType,
+                        timeString = timeString,
+                        isPlayingAzan = true
+                    )
+
+                    // Start background Azan playback service to play selected Azan audio
+                    val serviceIntent = Intent(context, AzanPlaybackService::class.java).apply {
+                        action = AzanPlaybackService.ACTION_START_AZAN
+                        putExtra(AzanPlaybackService.EXTRA_PRAYER_NAME, prayerType.englishName)
+                        putExtra(AzanPlaybackService.EXTRA_PRAYER_ARABIC, prayerType.arabicName)
+                        putExtra(AzanPlaybackService.EXTRA_IS_FAJR, isFajr)
                         putExtra(AzanPlaybackService.EXTRA_CUSTOM_URI, settings.customAzanUri)
                     }
+                    ContextCompat.startForegroundService(context, serviceIntent)
                 }
-                ContextCompat.startForegroundService(context, serviceIntent)
+            } else {
+                // Audio muted or disabled: show notification only
+                NotificationHelper.showPrayerNotification(
+                    context = context,
+                    prayerType = prayerType,
+                    timeString = timeString,
+                    isPlayingAzan = false
+                )
             }
         }
     }
@@ -102,23 +118,42 @@ class PrayerAlarmReceiver : BroadcastReceiver() {
         }
 
         NotificationHelper.showReminderNotification(context, prayerType, minutesRemaining)
+        // Pre-prayer reminder plays gentle 2-second chime
         AzanPlayer.playChime(context)
     }
 
     private fun handleTestAlarm(context: Context) {
-        NotificationHelper.showPrayerNotification(
-            context = context,
-            prayerType = PrayerType.MAGHRIB,
-            timeString = "Test Prayer",
-            isPlayingAzan = true
-        )
+        CoroutineScope(Dispatchers.IO).launch {
+            val repo = SettingsRepository(context)
+            val settings = repo.getSettingsOnce()
+            val hasAudioInstalled = AzanPlayer.hasSelectedAudio(context, settings.customAzanUri)
 
-        val serviceIntent = Intent(context, AzanPlaybackService::class.java).apply {
-            action = AzanPlaybackService.ACTION_START_AZAN
-            putExtra(AzanPlaybackService.EXTRA_PRAYER_NAME, "Maghrib (Test)")
-            putExtra(AzanPlaybackService.EXTRA_PRAYER_ARABIC, "المغرب")
-            putExtra(AzanPlaybackService.EXTRA_IS_FAJR, false)
+            if (!hasAudioInstalled) {
+                NotificationHelper.showPrayerNotification(
+                    context = context,
+                    prayerType = PrayerType.MAGHRIB,
+                    timeString = "Test Prayer",
+                    isPlayingAzan = false,
+                    warningMessage = "Please select an Azan audio file in Azan & Audio settings."
+                )
+                return@launch
+            }
+
+            NotificationHelper.showPrayerNotification(
+                context = context,
+                prayerType = PrayerType.MAGHRIB,
+                timeString = "Test Prayer",
+                isPlayingAzan = true
+            )
+
+            val serviceIntent = Intent(context, AzanPlaybackService::class.java).apply {
+                action = AzanPlaybackService.ACTION_START_AZAN
+                putExtra(AzanPlaybackService.EXTRA_PRAYER_NAME, "Maghrib (Test)")
+                putExtra(AzanPlaybackService.EXTRA_PRAYER_ARABIC, "المغرب")
+                putExtra(AzanPlaybackService.EXTRA_IS_FAJR, false)
+                putExtra(AzanPlaybackService.EXTRA_CUSTOM_URI, settings.customAzanUri)
+            }
+            ContextCompat.startForegroundService(context, serviceIntent)
         }
-        ContextCompat.startForegroundService(context, serviceIntent)
     }
 }

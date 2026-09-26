@@ -2,7 +2,9 @@ package com.example.ui
 
 import android.app.Application
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
+import android.provider.OpenableColumns
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.alarm.PrayerAlarmScheduler
@@ -25,6 +27,7 @@ import com.example.location.PresetCity
 import com.example.location.UserLocation
 import com.example.qibla.CompassManager
 import com.example.qibla.CompassState
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -35,6 +38,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import java.io.FileOutputStream
 import java.time.Duration
 import java.time.LocalDate
 import java.time.LocalTime
@@ -61,7 +65,8 @@ data class MainUiState(
     val qiblaBearing: Double = 0.0,
     val distanceToKaabaKm: Double = 0.0,
     val isAzanAudioPlaying: Boolean = false,
-    val testAlarmScheduled: Boolean = false
+    val testAlarmScheduled: Boolean = false,
+    val audioErrorMessage: String? = null
 )
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
@@ -332,10 +337,101 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             AzanPlayer.stop()
         } else {
             val settings = _uiState.value.settings
-            val isFajr = (settings.azanTone == "fajr")
-            val custom = if (settings.azanTone == "custom") settings.customAzanUri else null
-            AzanPlayer.playAzan(context, isFajr = isFajr, customUri = custom)
+            if (!AzanPlayer.hasSelectedAudio(context, settings.customAzanUri)) {
+                _uiState.value = _uiState.value.copy(
+                    audioErrorMessage = "No Azan audio file selected. Please select an Azan audio file using the 'Select Azan Audio' button."
+                )
+                return
+            }
+            val result = AzanPlayer.playAzan(
+                context = context,
+                customUri = settings.customAzanUri,
+                allowBundledFallback = false
+            )
+            if (result is com.example.audio.AzanPlayResult.Error) {
+                _uiState.value = _uiState.value.copy(audioErrorMessage = result.message)
+            } else {
+                _uiState.value = _uiState.value.copy(audioErrorMessage = null)
+            }
         }
+    }
+
+    fun onAudioFileSelected(uri: Uri) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                // 1. Take persistable URI permissions
+                val takeFlags = Intent.FLAG_GRANT_READ_URI_PERMISSION
+                try {
+                    context.contentResolver.takePersistableUriPermission(uri, takeFlags)
+                } catch (e: Exception) {
+                    android.util.Log.w("MainViewModel", "Could not take persistable URI permission", e)
+                }
+
+                // 2. Query display name
+                var displayName = "SelectedAzan.mp3"
+                try {
+                    context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                        if (cursor.moveToFirst()) {
+                            val nameIdx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                            if (nameIdx != -1) {
+                                val name = cursor.getString(nameIdx)
+                                if (!name.isNullOrBlank()) {
+                                    displayName = name
+                                }
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.w("MainViewModel", "Could not query display name", e)
+                }
+
+                // 3. Cache copy into internal storage for 100% reliable background/offline alarms
+                val localAzanFile = AzanPlayer.getLocalAzanFile(context)
+                try {
+                    context.contentResolver.openInputStream(uri)?.use { input ->
+                        FileOutputStream(localAzanFile).use { output ->
+                            input.copyTo(output)
+                        }
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.w("MainViewModel", "Could not copy audio file locally", e)
+                }
+
+                // 4. Save to DataStore
+                repo.setSelectedCustomAzan(uri.toString(), displayName)
+                _uiState.value = _uiState.value.copy(audioErrorMessage = null)
+            } catch (e: Exception) {
+                _uiState.value = _uiState.value.copy(audioErrorMessage = "Failed to load selected audio: ${e.message}")
+            }
+        }
+    }
+
+    fun useBundledAzan() {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val localAzanFile = AzanPlayer.getLocalAzanFile(context)
+                val azanResId = context.resources.getIdentifier("azan", "raw", context.packageName)
+                if (azanResId != 0) {
+                    context.resources.openRawResource(azanResId).use { input ->
+                        FileOutputStream(localAzanFile).use { output ->
+                            input.copyTo(output)
+                        }
+                    }
+                    repo.setSelectedCustomAzan("bundled", "azan.mp3 (Bundled)")
+                    _uiState.value = _uiState.value.copy(audioErrorMessage = null)
+                }
+            } catch (e: Exception) {
+                android.util.Log.w("MainViewModel", "Failed to set bundled azan", e)
+            }
+        }
+    }
+
+    fun stopAzan() {
+        AzanPlayer.stop()
+    }
+
+    fun dismissAudioError() {
+        _uiState.value = _uiState.value.copy(audioErrorMessage = null)
     }
 
     fun testReminderChime() {

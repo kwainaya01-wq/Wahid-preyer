@@ -101,12 +101,12 @@ fun SettingsScreen(
     var showHijriAdjustmentDialog by remember { mutableStateOf(false) }
     var showThemeDialog by remember { mutableStateOf(false) }
 
-    // Audio file picker launcher
+    // Audio file picker launcher (Storage Access Framework)
     val audioPickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
+        contract = ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
         if (uri != null) {
-            viewModel.setAzanTone("custom", uri.toString())
+            viewModel.onAudioFileSelected(uri)
         }
     }
 
@@ -278,81 +278,179 @@ fun SettingsScreen(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
             ) {
                 Column {
-                    // Master Switch
+                    // Azan [ ON/OFF ]
                     SettingSwitchItem(
-                        title = "Master Azan Alarm",
-                        subtitle = "Enable or disable all call to prayer alarms",
+                        title = "Azan",
+                        subtitle = if (settings.masterAzanEnabled) "Azan is enabled" else "Azan is muted",
                         checked = settings.masterAzanEnabled,
                         onCheckedChange = { viewModel.toggleMasterAzan(it) },
                         testTag = "setting_master_azan_switch"
                     )
                     HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
 
-                    // Per-Prayer Switches
-                    PrayerType.azanPrayers.forEach { prayer ->
-                        SettingSwitchItem(
-                            title = "${prayer.englishName} Azan (${prayer.arabicName})",
-                            subtitle = if (settings.isAzanEnabledFor(prayer)) "Alarm active" else "Muted",
-                            checked = settings.isAzanEnabledFor(prayer),
-                            enabled = settings.masterAzanEnabled,
-                            onCheckedChange = { viewModel.togglePrayerAzan(prayer, it) },
-                            testTag = "setting_azan_${prayer.name.lowercase()}"
-                        )
-                        HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
-                    }
-
-                    // Azan Tone Selection
-                    val toneTitle = when (settings.azanTone) {
-                        "default" -> "Standard Azan"
-                        "fajr" -> "Dawn Azan (Fajr)"
-                        "custom" -> "Custom Audio File"
-                        else -> "Notification Only (Silent)"
-                    }
-                    SettingClickableItem(
-                        title = "Select Azan Audio",
-                        subtitle = toneTitle,
-                        onClick = { showAzanToneDialog = true },
-                        testTag = "setting_select_azan_tone"
+                    // Fajr [ON/OFF]
+                    SettingSwitchItem(
+                        title = "Fajr",
+                        subtitle = "${PrayerType.FAJR.arabicName} Salah",
+                        checked = settings.isAzanEnabledFor(PrayerType.FAJR),
+                        enabled = settings.masterAzanEnabled,
+                        onCheckedChange = { viewModel.togglePrayerAzan(PrayerType.FAJR, it) },
+                        testTag = "setting_azan_fajr"
                     )
-
                     HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
 
-                    // Test Azan Button
-                    Row(
+                    // Dhuhr [ON/OFF]
+                    SettingSwitchItem(
+                        title = "Dhuhr",
+                        subtitle = "${PrayerType.DHUHR.arabicName} Salah",
+                        checked = settings.isAzanEnabledFor(PrayerType.DHUHR),
+                        enabled = settings.masterAzanEnabled,
+                        onCheckedChange = { viewModel.togglePrayerAzan(PrayerType.DHUHR, it) },
+                        testTag = "setting_azan_dhuhr"
+                    )
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
+
+                    // Asr [ON/OFF]
+                    SettingSwitchItem(
+                        title = "Asr",
+                        subtitle = "${PrayerType.ASR.arabicName} Salah",
+                        checked = settings.isAzanEnabledFor(PrayerType.ASR),
+                        enabled = settings.masterAzanEnabled,
+                        onCheckedChange = { viewModel.togglePrayerAzan(PrayerType.ASR, it) },
+                        testTag = "setting_azan_asr"
+                    )
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
+
+                    // Maghrib [ON/OFF]
+                    SettingSwitchItem(
+                        title = "Maghrib",
+                        subtitle = "${PrayerType.MAGHRIB.arabicName} Salah",
+                        checked = settings.isAzanEnabledFor(PrayerType.MAGHRIB),
+                        enabled = settings.masterAzanEnabled,
+                        onCheckedChange = { viewModel.togglePrayerAzan(PrayerType.MAGHRIB, it) },
+                        testTag = "setting_azan_maghrib"
+                    )
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
+
+                    // Isha [ON/OFF]
+                    SettingSwitchItem(
+                        title = "Isha",
+                        subtitle = "${PrayerType.ISHA.arabicName} Salah",
+                        checked = settings.isAzanEnabledFor(PrayerType.ISHA),
+                        enabled = settings.masterAzanEnabled,
+                        onCheckedChange = { viewModel.togglePrayerAzan(PrayerType.ISHA, it) },
+                        testTag = "setting_azan_isha"
+                    )
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
+
+                    // Azan Audio Section
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(16.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Column {
-                            Text(
-                                text = "Preview Selected Azan",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                            Text(
-                                text = if (uiState.isAzanAudioPlaying) "Playing Azan..." else "Test volume and audio output",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                        Text(
+                            text = "Azan Audio",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+
+                        val selectedName = settings.customAzanFileName ?: "None (Please select an audio file)"
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.VolumeUp,
+                                    contentDescription = null,
+                                    tint = if (settings.customAzanFileName != null) IslamicGold else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Selected: $selectedName",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = if (settings.customAzanFileName != null) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.error
+                                )
+                            }
                         }
 
+                        // [ Select Azan Audio ] (or [ Change Audio ])
                         Button(
-                            onClick = { viewModel.testPlayAzan() },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = if (uiState.isAzanAudioPlaying) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
-                            ),
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.testTag("test_azan_button")
+                            onClick = {
+                                audioPickerLauncher.launch(arrayOf("audio/*", "application/ogg"))
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("select_azan_audio_button"),
+                            shape = RoundedCornerShape(12.dp)
                         ) {
                             Icon(
-                                imageVector = if (uiState.isAzanAudioPlaying) Icons.Default.Stop else Icons.Default.PlayArrow,
+                                imageVector = Icons.Default.VolumeUp,
                                 contentDescription = null,
                                 modifier = Modifier.size(18.dp)
                             )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(if (uiState.isAzanAudioPlaying) "Stop" else "Test Azan")
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(if (settings.customAzanFileName != null) "Change Audio" else "Select Azan Audio")
+                        }
+
+                        // [ Test Azan ] and [ Stop Azan ]
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Button(
+                                onClick = { viewModel.testPlayAzan() },
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("test_azan_button")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.PlayArrow,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Test Azan")
+                            }
+
+                            FilledTonalButton(
+                                onClick = { viewModel.stopAzan() },
+                                colors = ButtonDefaults.filledTonalButtonColors(
+                                    containerColor = if (uiState.isAzanAudioPlaying) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.surfaceVariant,
+                                    contentColor = if (uiState.isAzanAudioPlaying) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onSurfaceVariant
+                                ),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("stop_azan_button")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Stop,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Stop Azan")
+                            }
+                        }
+
+                        // Option to easily use bundled azan.mp3
+                        OutlinedButton(
+                            onClick = { viewModel.useBundledAzan() },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Text("Use Bundled Azan (azan.mp3)")
                         }
                     }
                 }
@@ -761,17 +859,22 @@ fun SettingsScreen(
             text = {
                 Column {
                     val tones = listOf(
-                        "default" to "Standard Azan (Bundled Melodic Call)",
-                        "fajr" to "Fajr Azan (As-Salatu Khayrun Minan-Nawm)",
-                        "none" to "No Audio / Notification Only"
+                        "default" to "Default Azan (azan.mp3)",
+                        "custom" to "Custom Audio File",
+                        "none" to "No Azan / Notification Only"
                     )
                     tones.forEach { (key, label) ->
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable {
-                                    viewModel.setAzanTone(key)
-                                    showAzanToneDialog = false
+                                    if (key == "custom") {
+                                        showAzanToneDialog = false
+                                        audioPickerLauncher.launch(arrayOf("audio/*", "application/ogg"))
+                                    } else {
+                                        viewModel.setAzanTone(key)
+                                        showAzanToneDialog = false
+                                    }
                                 }
                                 .padding(vertical = 10.dp),
                             verticalAlignment = Alignment.CenterVertically
@@ -779,8 +882,13 @@ fun SettingsScreen(
                             RadioButton(
                                 selected = (settings.azanTone == key),
                                 onClick = {
-                                    viewModel.setAzanTone(key)
-                                    showAzanToneDialog = false
+                                    if (key == "custom") {
+                                        showAzanToneDialog = false
+                                        audioPickerLauncher.launch(arrayOf("audio/*", "application/ogg"))
+                                    } else {
+                                        viewModel.setAzanTone(key)
+                                        showAzanToneDialog = false
+                                    }
                                 }
                             )
                             Spacer(modifier = Modifier.width(8.dp))
@@ -792,17 +900,31 @@ fun SettingsScreen(
                     OutlinedButton(
                         onClick = {
                             showAzanToneDialog = false
-                            audioPickerLauncher.launch("audio/*")
+                            audioPickerLauncher.launch(arrayOf("audio/*", "application/ogg"))
                         },
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text("Import Custom Audio File from Storage...")
+                        Text("Select Custom Audio File from Storage...")
                     }
                 }
             },
             confirmButton = {
                 TextButton(onClick = { showAzanToneDialog = false }) {
                     Text("Cancel")
+                }
+            }
+        )
+    }
+
+    // Missing Audio Notice Dialog
+    if (uiState.audioErrorMessage != null) {
+        AlertDialog(
+            onDismissRequest = { viewModel.dismissAudioError() },
+            title = { Text("Azan Audio Notice") },
+            text = { Text(uiState.audioErrorMessage) },
+            confirmButton = {
+                TextButton(onClick = { viewModel.dismissAudioError() }) {
+                    Text("OK")
                 }
             }
         )

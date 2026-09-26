@@ -12,7 +12,6 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import com.example.MainActivity
 import com.example.R
-import com.example.calculation.PrayerType
 
 class AzanPlaybackService : Service() {
 
@@ -37,7 +36,7 @@ class AzanPlaybackService : Service() {
             PowerManager.PARTIAL_WAKE_LOCK,
             "WahidPrayer:AzanPlaybackWakeLock"
         ).apply {
-            acquire(5 * 60 * 1000L) // Safety timeout 5 minutes
+            acquire(5 * 60 * 1000L) // 5 minutes max timeout
         }
     }
 
@@ -56,7 +55,7 @@ class AzanPlaybackService : Service() {
 
         startForegroundNotification(prayerName, prayerArabic)
 
-        AzanPlayer.playAzan(
+        val result = AzanPlayer.playAzan(
             context = this,
             isFajr = isFajr,
             customUri = customUri,
@@ -64,6 +63,12 @@ class AzanPlaybackService : Service() {
                 stopAzanAndService()
             }
         )
+
+        if (result is AzanPlayResult.Error) {
+            // Audio missing or failed - update notification with missing audio warning and stop
+            showMissingAudioNotification(prayerName, result.message)
+            stopAzanAndService()
+        }
 
         return START_NOT_STICKY
     }
@@ -92,7 +97,7 @@ class AzanPlaybackService : Service() {
         val notification = NotificationCompat.Builder(this, NotificationHelper.CHANNEL_PRAYER_TIMES)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentTitle("🕌 Azan: $prayerName Salah ($prayerArabic)")
-            .setContentText("It is time for $prayerName Salah. Tap to open or stop below.")
+            .setContentText("Playing Azan. Tap to open or stop below.")
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setContentIntent(pendingOpenApp)
@@ -110,6 +115,10 @@ class AzanPlaybackService : Service() {
         } else {
             startForeground(FOREGROUND_NOTIFICATION_ID, notification)
         }
+    }
+
+    private fun showMissingAudioNotification(prayerName: String, errorMessage: String) {
+        NotificationHelper.showMissingAudioNotification(this, prayerName, errorMessage)
     }
 
     private fun stopAzanAndService() {

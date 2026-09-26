@@ -32,8 +32,9 @@ data class AppSettings(
     val asrAzanEnabled: Boolean = true,
     val maghribAzanEnabled: Boolean = true,
     val ishaAzanEnabled: Boolean = true,
-    val azanTone: String = "default", // "default", "fajr", "custom", "none"
+    val azanTone: String = "custom", // "custom", "none"
     val customAzanUri: String? = null,
+    val customAzanFileName: String? = null,
     val preReminderEnabled: Boolean = true,
     val reminderMinutesBefore: Int = 10,
     val hijriAdjustment: Int = 0,
@@ -78,6 +79,7 @@ class SettingsRepository(private val context: Context) {
 
         val AZAN_TONE = stringPreferencesKey("azan_tone")
         val CUSTOM_AZAN_URI = stringPreferencesKey("custom_azan_uri")
+        val CUSTOM_AZAN_FILE_NAME = stringPreferencesKey("custom_azan_file_name")
 
         val PRE_REMINDER = booleanPreferencesKey("pre_reminder")
         val REMINDER_MINUTES = intPreferencesKey("reminder_minutes")
@@ -136,8 +138,9 @@ class SettingsRepository(private val context: Context) {
             asrAzanEnabled = pref[Keys.ASR_AZAN] ?: true,
             maghribAzanEnabled = pref[Keys.MAGHRIB_AZAN] ?: true,
             ishaAzanEnabled = pref[Keys.ISHA_AZAN] ?: true,
-            azanTone = pref[Keys.AZAN_TONE] ?: "default",
+            azanTone = pref[Keys.AZAN_TONE] ?: "custom",
             customAzanUri = pref[Keys.CUSTOM_AZAN_URI],
+            customAzanFileName = pref[Keys.CUSTOM_AZAN_FILE_NAME],
             preReminderEnabled = pref[Keys.PRE_REMINDER] ?: true,
             reminderMinutesBefore = pref[Keys.REMINDER_MINUTES] ?: 10,
             hijriAdjustment = pref[Keys.HIJRI_ADJUSTMENT] ?: 0,
@@ -206,6 +209,21 @@ class SettingsRepository(private val context: Context) {
             if (customUri != null) {
                 pref[Keys.CUSTOM_AZAN_URI] = customUri
             }
+        }
+    }
+
+    suspend fun setSelectedCustomAzan(uri: String, fileName: String) {
+        context.dataStore.edit { pref ->
+            pref[Keys.AZAN_TONE] = "custom"
+            pref[Keys.CUSTOM_AZAN_URI] = uri
+            pref[Keys.CUSTOM_AZAN_FILE_NAME] = fileName
+        }
+    }
+
+    suspend fun clearSelectedCustomAzan() {
+        context.dataStore.edit { pref ->
+            pref.remove(Keys.CUSTOM_AZAN_URI)
+            pref.remove(Keys.CUSTOM_AZAN_FILE_NAME)
         }
     }
 

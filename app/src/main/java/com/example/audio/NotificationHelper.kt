@@ -20,12 +20,12 @@ object NotificationHelper {
     const val CHANNEL_REMINDERS = "wahid_prayer_reminders_channel"
     const val NOTIFICATION_ID_PRAYER = 1001
     const val NOTIFICATION_ID_REMINDER = 1002
+    const val NOTIFICATION_ID_MISSING_AUDIO = 1003
 
     fun createNotificationChannels(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
-            val prayerSoundUri = Uri.parse("android.resource://${context.packageName}/${R.raw.azan_default}")
             val audioAttributes = AudioAttributes.Builder()
                 .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
                 .setUsage(AudioAttributes.USAGE_ALARM)
@@ -40,7 +40,6 @@ object NotificationHelper {
                 description = "Urgent notifications for Islamic prayer times (Salah)"
                 enableVibration(true)
                 vibrationPattern = longArrayOf(0, 500, 200, 500)
-                setSound(prayerSoundUri, audioAttributes)
             }
 
             // 2. Reminder Channel
@@ -62,7 +61,8 @@ object NotificationHelper {
         context: Context,
         prayerType: PrayerType,
         timeString: String,
-        isPlayingAzan: Boolean = false
+        isPlayingAzan: Boolean = false,
+        warningMessage: String? = null
     ) {
         val openAppIntent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
@@ -74,13 +74,17 @@ object NotificationHelper {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
+        val subtext = if (!warningMessage.isNullOrBlank()) {
+            "It is time for ${prayerType.englishName} Salah ($timeString).\n\n⚠️ $warningMessage"
+        } else {
+            "It is time for ${prayerType.englishName} Salah ($timeString).\n\"Verily, Salah has been enjoined on the believers at fixed times.\""
+        }
+
         val builder = NotificationCompat.Builder(context, CHANNEL_PRAYER_TIMES)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentTitle("${prayerType.iconEmoji} ${prayerType.englishName} Salah (${prayerType.arabicName})")
             .setContentText("It is time for ${prayerType.englishName} Salah ($timeString).")
-            .setStyle(NotificationCompat.BigTextStyle().bigText(
-                "It is time for ${prayerType.englishName} Salah ($timeString).\n\"Verily, Salah has been enjoined on the believers at fixed times.\""
-            ))
+            .setStyle(NotificationCompat.BigTextStyle().bigText(subtext))
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setContentIntent(pendingOpenApp)
@@ -104,6 +108,36 @@ object NotificationHelper {
         } catch (_: SecurityException) {
             // Android 13+ permission not yet granted
         }
+    }
+
+    fun showMissingAudioNotification(
+        context: Context,
+        prayerName: String,
+        errorMessage: String
+    ) {
+        val openAppIntent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val pendingOpenApp = PendingIntent.getActivity(
+            context,
+            3,
+            openAppIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val builder = NotificationCompat.Builder(context, CHANNEL_PRAYER_TIMES)
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setContentTitle("🕌 $prayerName Salah")
+            .setContentText(errorMessage)
+            .setStyle(NotificationCompat.BigTextStyle().bigText("$errorMessage\n\nNotification delivered without audio."))
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setContentIntent(pendingOpenApp)
+            .setAutoCancel(true)
+
+        try {
+            NotificationManagerCompat.from(context).notify(NOTIFICATION_ID_MISSING_AUDIO, builder.build())
+        } catch (_: SecurityException) {}
     }
 
     fun showReminderNotification(
