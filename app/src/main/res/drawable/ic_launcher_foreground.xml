@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Mosque Silhouette Base -->
+    <path
+        android:fillColor="#E6C875"
+        android:pathData="M38,72 L70,72 L70,68 C70,64 66,60 54,54 C42,60 38,64 38,68 Z" />
+    <path
+        android:fillColor="#F6DA88"
+        android:pathData="M52,54 L56,54 L54,49 Z" />
+    <!-- Minarets Left and Right -->
+    <path
+        android:fillColor="#D8B55C"
+        android:pathData="M35,72 L38,72 L38,58 L36.5,55 L35,58 Z" />
+    <path
+        android:fillColor="#D8B55C"
+        android:pathData="M70,72 L73,72 L73,58 L71.5,55 L70,58 Z" />
+    <!-- Beautiful Bold Crescent Moon -->
+    <path
+        android:fillColor="#FFDF78"
+        android:pathData="M54,26 C43.5,26 35,34.5 35,45 C35,53.2 40.2,60.2 47.6,62.8 C44.8,59.3 43.2,54.9 43.2,50.1 C43.2,38.8 52.3,29.7 63.6,29.7 C65.5,29.7 67.3,30.0 69.0,30.5 C64.9,27.7 60,26 54,26 Z" />
+    <!-- Islamic 8-Pointed Star -->
+    <path
+        android:fillColor="#FFF1B8"
+        android:pathData="M65,36 L66.5,39 L69.5,37.5 L68,40.5 L71,42 L68,43.5 L69.5,46.5 L66.5,45 L65,48 L63.5,45 L60.5,46.5 L62,43.5 L59,42 L62,40.5 L60.5,37.5 L63.5,39 Z" />
+</vector>

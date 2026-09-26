@@ -1,0 +1,6 @@
+{
+  "name": "Wahid Prayer",
+  "description": "Location-based Islamic prayer times, Azan scheduling, Qibla compass, and Ramadan tracker.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
