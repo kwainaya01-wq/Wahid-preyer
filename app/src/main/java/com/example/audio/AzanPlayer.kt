@@ -23,7 +23,6 @@ sealed class AzanPlayResult {
 object AzanPlayer {
 
     private const val TAG = "AzanPlayer"
-    const val MISSING_AZAN_MESSAGE = "Azan audio is not selected. Please select an Azan audio file in Azan & Audio settings."
     const val LOCAL_AZAN_FILE_NAME = "selected_azan_audio"
 
     private var mediaPlayer: MediaPlayer? = null
@@ -39,25 +38,38 @@ object AzanPlayer {
     }
 
     fun hasDefaultAzanAudio(context: Context): Boolean {
-        val resId = context.resources.getIdentifier("azan", "raw", context.packageName)
-        return resId != 0
+        return try {
+            val afd = context.resources.openRawResourceFd(R.raw.azan)
+            val exists = afd != null
+            afd?.close()
+            exists
+        } catch (_: Exception) {
+            true
+        }
     }
 
     fun hasSelectedAudio(context: Context, customUri: String?): Boolean {
+        if (!customUri.isNullOrBlank() && customUri != "bundled") return true
         val localFile = getLocalAzanFile(context)
-        if (localFile.exists() && localFile.length() > 0) return true
-        if (!customUri.isNullOrBlank()) return true
-        return false
+        return localFile.exists() && localFile.length() > 0
     }
 
+    /**
+     * Reliable central audio playback method for both Test Azan and scheduled prayer playback.
+     *
+     * - If [customUri] points to a user-selected audio file (content:// or file://), it plays that file
+     *   via ContentResolver / FileDescriptor, with cached local file backup.
+     * - If [customUri] is null, blank, or "bundled", it plays bundled azan.mp3 (R.raw.azan).
+     * - Under NO circumstance does it silently substitute reminder_chime.wav.
+     */
     @Synchronized
     fun playAzan(
         context: Context,
-        isFajr: Boolean = false,
         customUri: String? = null,
-        allowBundledFallback: Boolean = false,
+        isFajr: Boolean = false,
         onCompletion: (() -> Unit)? = null
     ): AzanPlayResult {
+        // 1. Stop any current playback cleanly
         stop()
 
         val audioMgr = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
@@ -68,98 +80,135 @@ object AzanPlayer {
             .setUsage(AudioAttributes.USAGE_ALARM)
             .build()
 
-        // 1. Request Audio Focus
+        // 2. Request Audio Focus
         requestAudioFocus(audioMgr, audioAttributes)
 
-        // 2. Determine and open data source
-        var openedPlayer: MediaPlayer? = null
+        var player: MediaPlayer? = null
         try {
-            val player = MediaPlayer().apply {
+            player = MediaPlayer().apply {
                 setAudioAttributes(audioAttributes)
+                isLooping = false
             }
 
             var dataSourceSet = false
+            var customLoadError: Exception? = null
 
-            // Priority 1: Check internally persisted/cached user audio file
-            val localFile = getLocalAzanFile(context)
-            if (localFile.exists() && localFile.length() > 0) {
+            // Check if user selected a custom file (not null, not empty, not "bundled")
+            val isCustomSelected = !customUri.isNullOrBlank() && customUri != "bundled"
+
+            if (isCustomSelected) {
+                val uriString = customUri!!
                 try {
-                    val fis = FileInputStream(localFile)
-                    player.setDataSource(fis.fd)
-                    fis.close()
-                    dataSourceSet = true
-                    Log.d(TAG, "Playing Azan from persistent local file: ${localFile.length()} bytes")
+                    val uri = Uri.parse(uriString)
+                    // Attempt opening file descriptor via ContentResolver (supports persisted SAF URIs)
+                    val pfd = context.contentResolver.openFileDescriptor(uri, "r")
+                    if (pfd != null) {
+                        try {
+                            player.setDataSource(pfd.fileDescriptor)
+                            player.prepare()
+                            dataSourceSet = true
+                            Log.d(TAG, "Successfully loaded custom Azan via ContentResolver FD: $uriString")
+                        } finally {
+                            try { pfd.close() } catch (_: Exception) {}
+                        }
+                    } else {
+                        // Direct Context URI fallback
+                        player.setDataSource(context, uri)
+                        player.prepare()
+                        dataSourceSet = true
+                        Log.d(TAG, "Successfully loaded custom Azan via context URI: $uriString")
+                    }
                 } catch (e: Exception) {
-                    Log.w(TAG, "Failed to load persistent local audio file", e)
-                }
-            }
-
-            // Priority 2: Try custom URI if provided
-            if (!dataSourceSet && !customUri.isNullOrBlank()) {
-                if (customUri == "bundled") {
-                    val azanResId = context.resources.getIdentifier("azan", "raw", context.packageName)
-                    if (azanResId != 0) {
-                        val afd = context.resources.openRawResourceFd(azanResId)
-                        player.setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
-                        afd.close()
-                        dataSourceSet = true
+                    Log.w(TAG, "Failed loading custom Azan from ContentResolver URI: $uriString", e)
+                    customLoadError = e
+                    // Try cached internal storage copy as fallback
+                    val localFile = getLocalAzanFile(context)
+                    if (localFile.exists() && localFile.length() > 0) {
+                        try {
+                            player.reset()
+                            player.setAudioAttributes(audioAttributes)
+                            val fis = FileInputStream(localFile)
+                            try {
+                                player.setDataSource(fis.fd)
+                                player.prepare()
+                                dataSourceSet = true
+                                Log.d(TAG, "Successfully loaded custom Azan from cached local file (${localFile.length()} bytes)")
+                            } finally {
+                                try { fis.close() } catch (_: Exception) {}
+                            }
+                        } catch (cacheEx: Exception) {
+                            Log.e(TAG, "Failed loading custom Azan from cached copy as well", cacheEx)
+                        }
                     }
-                } else {
-                    try {
-                        player.setDataSource(context, Uri.parse(customUri))
+                }
+
+                if (!dataSourceSet) {
+                    // Do NOT silently fall back to chime or bundled audio when custom file fails.
+                    // Return explicit diagnostic error so the user can fix the selected file.
+                    abandonFocus()
+                    player.release()
+                    _isPlaying.value = false
+                    val errorMsg = "Failed to play selected Azan audio: ${customLoadError?.localizedMessage ?: "File inaccessible"}"
+                    Log.e(TAG, errorMsg)
+                    return AzanPlayResult.Error(errorMsg)
+                }
+            } else {
+                // Bundled Azan: Play R.raw.azan (app/src/main/res/raw/azan.mp3)
+                try {
+                    val afd = context.resources.openRawResourceFd(R.raw.azan)
+                    if (afd != null) {
+                        try {
+                            player.setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
+                            player.prepare()
+                            dataSourceSet = true
+                            Log.d(TAG, "Successfully loaded bundled Azan (R.raw.azan / azan.mp3)")
+                        } finally {
+                            try { afd.close() } catch (_: Exception) {}
+                        }
+                    } else {
+                        val resUri = Uri.parse("android.resource://${context.packageName}/${R.raw.azan}")
+                        player.setDataSource(context, resUri)
+                        player.prepare()
                         dataSourceSet = true
-                        Log.d(TAG, "Playing Azan from SAF URI: $customUri")
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Failed to load custom audio URI: $customUri", e)
+                        Log.d(TAG, "Successfully loaded bundled Azan via android.resource URI")
                     }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to load bundled Azan (R.raw.azan)", e)
+                    abandonFocus()
+                    player.release()
+                    _isPlaying.value = false
+                    return AzanPlayResult.Error("Failed to load bundled azan.mp3: ${e.localizedMessage}")
                 }
             }
 
-            // Priority 3: Bundled fallback ONLY if explicitly allowed (e.g. testing)
-            if (!dataSourceSet && allowBundledFallback) {
-                val azanResId = context.resources.getIdentifier("azan", "raw", context.packageName)
-                if (azanResId != 0) {
-                    val afd = context.resources.openRawResourceFd(azanResId)
-                    player.setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
-                    afd.close()
-                    dataSourceSet = true
-                }
-            }
-
-            // If no user audio selected and no source could be set:
-            if (!dataSourceSet) {
-                abandonFocus()
-                player.release()
-                Log.e(TAG, MISSING_AZAN_MESSAGE)
-                return AzanPlayResult.Error(MISSING_AZAN_MESSAGE)
-            }
-
-            player.prepare()
-            player.start()
-
+            // 3. Configure listeners
             player.setOnCompletionListener {
+                Log.d(TAG, "Azan playback completed naturally")
                 _isPlaying.value = false
                 stop()
                 onCompletion?.invoke()
             }
 
             player.setOnErrorListener { _, what, extra ->
-                Log.e(TAG, "MediaPlayer error: what=$what, extra=$extra")
+                Log.e(TAG, "MediaPlayer playback error: what=$what, extra=$extra")
                 _isPlaying.value = false
                 stop()
                 true
             }
 
-            openedPlayer = player
+            // 4. Start playback
+            player.start()
             mediaPlayer = player
             _isPlaying.value = true
+            Log.d(TAG, "Azan playback started successfully")
             return AzanPlayResult.Success
+
         } catch (e: Exception) {
-            Log.e(TAG, "Error playing Azan", e)
-            openedPlayer?.release()
+            Log.e(TAG, "Unexpected error playing Azan", e)
+            try { player?.release() } catch (_: Exception) {}
             abandonFocus()
             _isPlaying.value = false
-            return AzanPlayResult.Error(e.message ?: MISSING_AZAN_MESSAGE)
+            return AzanPlayResult.Error("Audio error: ${e.localizedMessage ?: "Unknown error"}")
         }
     }
 

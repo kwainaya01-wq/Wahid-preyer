@@ -8,6 +8,7 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import com.example.MainActivity
@@ -18,6 +19,7 @@ class AzanPlaybackService : Service() {
     private var wakeLock: PowerManager.WakeLock? = null
 
     companion object {
+        private const val TAG = "AzanPlaybackService"
         const val ACTION_START_AZAN = "com.example.wahidprayer.ACTION_START_AZAN"
         const val ACTION_STOP_AZAN = "com.example.wahidprayer.ACTION_STOP_AZAN"
         const val EXTRA_PRAYER_NAME = "extra_prayer_name"
@@ -55,17 +57,18 @@ class AzanPlaybackService : Service() {
 
         startForegroundNotification(prayerName, prayerArabic)
 
+        // Play Azan using the central AzanPlayer method
         val result = AzanPlayer.playAzan(
             context = this,
-            isFajr = isFajr,
             customUri = customUri,
+            isFajr = isFajr,
             onCompletion = {
                 stopAzanAndService()
             }
         )
 
         if (result is AzanPlayResult.Error) {
-            // Audio missing or failed - update notification with missing audio warning and stop
+            Log.e(TAG, "Scheduled Azan playback error: ${result.message}")
             showMissingAudioNotification(prayerName, result.message)
             stopAzanAndService()
         }

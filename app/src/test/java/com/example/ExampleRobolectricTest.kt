@@ -83,13 +83,25 @@ class ExampleRobolectricTest {
     }
 
     @Test
-    fun `verify unselected audio handling does not play chime and returns error`() {
+    fun `verify playAzan with null customUri plays bundled azan`() {
         val context = ApplicationProvider.getApplicationContext<Context>()
-        // Ensure local file is not present for this test
+        org.robolectric.shadows.ShadowMediaPlayer.setMediaInfoProvider { _ ->
+            org.robolectric.shadows.ShadowMediaPlayer.MediaInfo(1000, 0)
+        }
+
+        val result = com.example.audio.AzanPlayer.playAzan(context, customUri = null)
+        val errorMsg = if (result is com.example.audio.AzanPlayResult.Error) result.message else ""
+        assertTrue("When no custom audio is selected, should play bundled azan.mp3. Error: $errorMsg", result is com.example.audio.AzanPlayResult.Success)
+        com.example.audio.AzanPlayer.stop()
+    }
+
+    @Test
+    fun `verify playAzan with invalid customUri returns error and does not play chime`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
         val localFile = com.example.audio.AzanPlayer.getLocalAzanFile(context)
         if (localFile.exists()) localFile.delete()
 
-        val result = com.example.audio.AzanPlayer.playAzan(context, customUri = null, allowBundledFallback = false)
-        assertTrue("When no audio file is selected, should return Error without playing chime", result is com.example.audio.AzanPlayResult.Error)
+        val result = com.example.audio.AzanPlayer.playAzan(context, customUri = "content://invalid/missing.mp3")
+        assertTrue("When invalid custom URI is provided, should return Error without playing chime", result is com.example.audio.AzanPlayResult.Error)
     }
 }

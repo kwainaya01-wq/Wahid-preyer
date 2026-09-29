@@ -7,7 +7,9 @@ import android.net.Uri
 import android.provider.OpenableColumns
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.R
 import com.example.alarm.PrayerAlarmScheduler
+import com.example.audio.AzanPlaybackService
 import com.example.audio.AzanPlayer
 import com.example.audio.NotificationHelper
 import com.example.calculation.CalculationMethod
@@ -334,19 +336,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun testPlayAzan() {
         if (_uiState.value.isAzanAudioPlaying) {
-            AzanPlayer.stop()
+            stopAzan()
         } else {
             val settings = _uiState.value.settings
-            if (!AzanPlayer.hasSelectedAudio(context, settings.customAzanUri)) {
-                _uiState.value = _uiState.value.copy(
-                    audioErrorMessage = "No Azan audio file selected. Please select an Azan audio file using the 'Select Azan Audio' button."
-                )
-                return
-            }
             val result = AzanPlayer.playAzan(
                 context = context,
                 customUri = settings.customAzanUri,
-                allowBundledFallback = false
+                isFajr = false
             )
             if (result is com.example.audio.AzanPlayResult.Error) {
                 _uiState.value = _uiState.value.copy(audioErrorMessage = result.message)
@@ -410,16 +406,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val localAzanFile = AzanPlayer.getLocalAzanFile(context)
-                val azanResId = context.resources.getIdentifier("azan", "raw", context.packageName)
-                if (azanResId != 0) {
-                    context.resources.openRawResource(azanResId).use { input ->
+                try {
+                    context.resources.openRawResource(R.raw.azan).use { input ->
                         FileOutputStream(localAzanFile).use { output ->
                             input.copyTo(output)
                         }
                     }
-                    repo.setSelectedCustomAzan("bundled", "azan.mp3 (Bundled)")
-                    _uiState.value = _uiState.value.copy(audioErrorMessage = null)
+                } catch (e: Exception) {
+                    if (localAzanFile.exists()) {
+                        localAzanFile.delete()
+                    }
                 }
+                repo.setSelectedCustomAzan("bundled", "azan.mp3 (Bundled)")
+                _uiState.value = _uiState.value.copy(audioErrorMessage = null)
             } catch (e: Exception) {
                 android.util.Log.w("MainViewModel", "Failed to set bundled azan", e)
             }
@@ -428,6 +427,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun stopAzan() {
         AzanPlayer.stop()
+        val stopIntent = Intent(context, AzanPlaybackService::class.java).apply {
+            action = AzanPlaybackService.ACTION_STOP_AZAN
+        }
+        try {
+            context.startService(stopIntent)
+        } catch (_: Exception) {}
     }
 
     fun dismissAudioError() {
